@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Редактор для интерактивного диктанта</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body {font-family:sans-serif; max-width:740px; margin:40px auto;}
+    input, textarea, select {font-size:17px; margin:5px;}
+    table {width:100%;border-collapse:collapse;}
+    th, td {border:1px solid #ccc;padding:6px;}
+    button {font-size:14px;margin:4px;}
+    .iframe-code {background:#26252f; color:#cdf; font-size:16px;padding:12px 7px;}
+  </style>
+</head>
+<body>
+<h2>Редактор диктанта — генератор задания для Genially</h2>
+<label>Фон: <input type="color" id="bgcolor" value="#f8fdff"></label><br>
+<label>Фразы прогресса:<br>
+  <textarea id="feedbacks" rows="3" style="width:96%">Отлично!
+Еще чуть-чуть!
+Ты супер!
+Готово!</textarea>
+</label>
+<h3>Задания</h3>
+<table id="tasksT"><thead>
+  <tr><th>Язык</th><th>Картинка URL</th><th>Дефиниция</th><th>Ответ</th><th>Фидбек</th><th>Удалить</th></tr>
+</thead>
+<tbody id="tasksBody"></tbody>
+</table>
+<button onclick="addTask()">+ Добавить задание</button>
+<br><br>
+<button onclick="generateIframe()">Скопировать код для Genially (iframe)</button>
+<div id="iframecode" class="iframe-code" style="word-break:break-all; margin-top:15px;"></div>
+
+<script>
+let tasks = [
+  { lang: "ru", image: "https://www.kindpng.com/picc/m/21-214439_cat-png-image-cartoon-cat-png-transparent-png.png", definition: "", answer: "кот", feedback: "Верно!" },
+  { lang: "en", image: "", definition: "Small pet, meows.", answer: "cat", feedback: "Good!" }
+];
+
+function renderTasks() {
+  let t = "";
+  for(let i=0;i<tasks.length;i++) {
+    t += `<tr>
+      <td><select>${["ru","en"].map(l=>`<option value="${l}"${tasks[i].lang===l?" selected":""}>${l}</option>`).join("")}</select></td>
+      <td><input type="text" value="${tasks[i].image||""}"></td>
+      <td><textarea rows=2>${tasks[i].definition||""}</textarea></td>
+      <td><input type="text" value="${tasks[i].answer||""}"></td>
+      <td><input type="text" value="${tasks[i].feedback||""}"></td>
+      <td><button onclick="deleteTask(${i})">✕</button></td>
+      </tr>`;
+  }
+  document.getElementById('tasksBody').innerHTML = t;
+}
+window.onload = renderTasks;
+function addTask() {
+  tasks.push({ lang: "ru", image: "", definition: "", answer: "", feedback: "" });
+  renderTasks();
+}
+function deleteTask(i) {
+  tasks.splice(i,1);
+  renderTasks();
+}
+function getStateFromForm() {
+  let rows = document.getElementById('tasksBody').children;
+  let t = [];
+  for(let r of rows){
+    let cells = r.children;
+    t.push({
+      lang: cells[0].querySelector("select").value,
+      image: cells[1].querySelector("input").value,
+      definition: cells[2].querySelector("textarea").value,
+      answer: cells[3].querySelector("input").value,
+      feedback: cells[4].querySelector("input").value
+    });
+  }
+  return {
+    bgcolor: document.getElementById("bgcolor").value,
+    feedbacks: document.getElementById("feedbacks").value.split("\n").map(x=>x.trim()).filter(Boolean),
+    tasks: t
+  }
+}
+function encodeSettings(settings) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(settings))));
+}
+function generateIframe() {
+  let conf = getStateFromForm();
+  let encoded = encodeSettings(conf);
+  // ВАЖНО! Укажите СВОЙ URL игровой страницы:
+  let YOUR_GAME_URL = "https://yourusername.github.io/dictationgame/game.html";
+  let url = `${YOUR_GAME_URL}?data=${encoded}`;
+  let html = `<iframe src="${url}" width="800" height="700" frameborder="0" allow="autoplay"></iframe>`;
+  document.getElementById('iframecode').textContent = html;
+  navigator.clipboard && navigator.clipboard.writeText(html);
+}
+</script>
+</body>
+</html>
