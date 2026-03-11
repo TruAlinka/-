@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <title>Диктант — игра</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family:sans-serif; margin:0;}
+    .container{max-width:740px;margin:36px auto 28px auto;padding:18px 0;}
+    #main-page{display:flex;flex-wrap:wrap;gap:24px;margin-bottom:26px;justify-content:center;}
+    .task-card{background:#fafaff;border-radius:14px;box-shadow:0 1px 8px #d9dbe7;padding:18px;text-align:center;width:144px;min-height:130px;cursor:pointer;position:relative;font-size:17px;transition:opacity .4s;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:150px;}
+    .task-card[disabled]{pointer-events:none;opacity:.53;}
+    .success-tag{position:absolute;top:8px;left:5px;background:#e0ffd7ee;color:#25702c;font-weight:bold;padding:3px 10px;border-radius:11px;z-index:10;font-size:16px;box-shadow:0 1px 4px #c1e2c1;}
+    #task-modal{position:fixed;left:0;top:0;right:0;bottom:0;z-index:999;background:rgba(20,25,42,0.43);display:none;align-items:center;justify-content:center;}
+    #task-modal>div{background:#fff;border-radius:14px;min-width:320px;min-height:160px;padding:38px 30px 24px 30px;position:relative;text-align:center;box-shadow:0 2px 24px #b8aaff54;}
+    .letters-box{min-height:36px;margin:16px 0 22px 0;}
+    .draggable-letter{display:inline-block;background:#e3e6f8;color:#272659;font-size:23px;padding:7px 14px;margin:4px;border-radius:8px;cursor:grab;font-weight:bold;box-shadow:0 0 3px #acaaff60;user-select:none;transition:background .23s;}
+    .draggable-letter.drag-over{background:#ffea80;border:2px solid #e0ad00;}
+    .letters-box.touch-mode .draggable-letter{cursor:pointer;}
+    #progress-bar{margin:22px 0 18px 0;text-align:center;}
+    #progress-feedback{margin-left:15px;color:#14914c;font-weight:500;}
+    #level-select{margin:0 0 18px 0;text-align:center;}
+    #level-select button{margin:0 8px;padding:6px 14px;border-radius:8px;border:1.5px solid #bcc1de;background:#fff;font-size:17px;cursor:pointer;}
+    #level-select .selected,#level-select button:hover{background:#e3e6fa;}
+    @media(max-width:700px){.container{max-width:99vw;padding:0;}}
+    @media(max-width:680px){#task-modal>div{min-width:0;width:92vw;}.task-card{width:46vw;min-width:116px;}}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div id="level-select"></div>
+  <div id="main-page"></div>
+  <div id="progress-bar">
+    <label>Отметь свой прогресс:
+      <input type="range" id="progress-range" min="0" max="1" value="0">
+    </label>
+    <span id="progress-feedback"></span>
+  </div>
+</div>
+<div id="task-modal"></div>
+<script>
+// ===== Декодирование параметров =====
+function getDecodedSettings() {
+  let m = location.search.match(/[?&]data=([A-Za-z0-9+/=._-]+)/);
+  if(!m) { alert("Нет параметра data в ссылке!"); return; }
+  try {
+    let json = decodeURIComponent(escape(window.atob(m[1])));
+    return JSON.parse(json);
+  } catch(e){ alert("Ошибка декодирования настроек: "+e); }
+}
+// ====== Логика игры (ничего не меняйте!) =====
+let SETTINGS = getDecodedSettings();
+if(SETTINGS.bgcolor) document.body.style.background = SETTINGS.bgcolor;
+const feedbackPhrases = SETTINGS.feedbacks;
+const dictationTasks = (SETTINGS.tasks||[]).map((z,i)=>({
+  id: i+1,
+  language: z.lang,
+  type: z.image ? "image":"definition",
+  image: z.image,
+  definition: z.definition,
+  answer: z.answer,
+  feedback: z.feedback
+}));
+let doneTasks = {};
+let currentLang = 'ru';
+let currentLevel = null;
+function renderLevelSelect() {
+  const div = document.getElementById('level-select');
+  div.innerHTML = `<div style="margin-bottom:12px;">
+    <span style="font-weight:500;">Выбери уровень:</span>
+    <button id="level-easy" class="${currentLevel==='easy'?'selected':''}">Лёгкий</button>
+    <button id="level-hard" class="${currentLevel==='hard'?'selected':''}">Сложный</button>
+    </div>
+    <div style="font-size:15px;color:#869;">🟢 <b>Лёгкий</b>: переставить буквы<br>
+    🔵 <b>Сложный</b>: вписать слово полностью</div>
+    <div style="margin-top:14px;">
+      <label>Язык:
+        <select id="lang-switch">
+          <option value="ru">Русский</option>
+          <option value="en">English</option>
+        </select>
+      </label>
+    </div>
+  `;
+  document.getElementById('level-easy').onclick = ()=>{currentLevel='easy';renderLevelSelect();renderMainPage();}
+  document.getElementById('level-hard').onclick = ()=>{currentLevel='hard';renderLevelSelect();renderMainPage();}
+  document.getElementById('lang-switch').value = currentLang;
+  document.getElementById('lang-switch').onchange = e=>{
+    currentLang = e.target.value;
+    doneTasks={}; currentLevel=null; renderLevelSelect(); renderMainPage();
+  };
+}
+function renderMainPage() {
+  if (!currentLevel) { document.getElementById('main-page').innerHTML = ""; return; }
+  const main = document.getElementById('main-page');
+  main.innerHTML = '';
+  dictationTasks.filter(t=>t.language===currentLang).forEach(task=>{
+    const card = document.createElement('div');
+    card.className = 'task-card';
+    if (doneTasks[task.id]) {
+      card.setAttribute('disabled', '');
+      const success = document.createElement('div');success.className = 'success-tag';
+      if (task.feedback.endsWith('.gif') || task.feedback.endsWith('.png'))
+        success.innerHTML = '<img src="'+task.feedback+'" alt="success" style="width:38px;">';
+      else success.innerHTML = '<span>'+task.feedback+'</span>';
+      card.appendChild(success);
+    }
+    if (task.type === 'image')
+      card.innerHTML += '<div><img src="'+task.image+'" alt="task" style="width:70px;"></div>';
+    else card.innerHTML += '<div style="margin-top:18px;">'+task.definition+'</div>';
+    card.onclick = ()=>{if(!doneTasks[task.id]) openTask(task);}
+    main.appendChild(card);
+  });
+}
+function openTask(task) {
+  let modal = document.getElementById('task-modal');
+  modal.style.display = 'flex';
+  let taskModal = document.createElement('div');
+  if(currentLevel==='easy'){
+    let shuffled = shuffleLetters(task.answer);
+    taskModal.innerHTML =
+    `<div>Собери слово:</div>
+    <div class="letters-box" id="letters-box">${
+      shuffled.map((letter,i)=>
+        `<span class="draggable-letter" draggable="true" data-index="${i}">${letter}</span>`
+      ).join('')
+    }</div>
+    <button onclick="checkLettersAnswer()" style="margin-bottom:15px;">Проверить</button>
+    <div id="feedback"></div>
+    <button onclick="closeTask()" style="margin-top:12px;">Назад</button>`;
+    modal.innerHTML = ''; modal.appendChild(taskModal); enableDragAndDropTouch();
+  }else{
+    taskModal.innerHTML =
+      `<div>Введи слово:</div>
+      <input type="text" id="text-input" autocomplete="off" style="font-size:22px;padding:4px;text-align:center;">
+      <button onclick="checkTextInput()" style="margin-left:10px;">Проверить</button>
+      <div id="feedback"></div>
+      <button onclick="closeTask()" style="display:block;margin:18px auto 0;">Назад</button>`;
+    modal.innerHTML = ''; modal.appendChild(taskModal);
+    setTimeout(()=>document.getElementById('text-input').focus(), 100);
+  }
+  function enableDragAndDropTouch() {
+    let dragged = null;
+    const box = document.getElementById('letters-box');
+    const letters = box.querySelectorAll('.draggable-letter');
+    letters.forEach(l=>{
+      l.addEventListener('dragstart',function(){ dragged=this;setTimeout(()=>this.style.opacity="0.25",0)});
+      l.addEventListener('dragend',function(){ this.style.opacity="1";dragged=null;letters.forEach(el=>el.classList.remove('drag-over'))});
+      l.addEventListener('dragover',e=>{ e.preventDefault(); });
+      l.addEventListener('dragenter',function(){ this.classList.add('drag-over');});
+      l.addEventListener('dragleave',function(){ this.classList.remove('drag-over');});
+      l.addEventListener('drop',function(e){
+        e.preventDefault();
+        if(!dragged||dragged===this)return;
+        const all=Array.from(box.children);
+        const di=all.indexOf(dragged),dri=all.indexOf(this);
+        if(di<dri){box.insertBefore(dragged,this.nextSibling);}
+        else{box.insertBefore(dragged,this);}
+        letters.forEach(el=>el.classList.remove('drag-over'));
+      });
+    });
+    let firstTap=null;
+    box.classList.remove('touch-mode');
+    if ('ontouchstart' in window) {
+      box.classList.add('touch-mode');
+      letters.forEach(l=>l.ontouchend=(e)=>{
+        e.preventDefault();
+        if (firstTap===null) { firstTap = l; l.style.background = "#ffe683"; }
+        else if (firstTap!==l) {swapElems(firstTap,l); firstTap.style.background = ""; firstTap=null;}
+        else{firstTap.style.background = ""; firstTap = null;}
+      });
+      document.body.ontouchstart=(e)=>{
+        if(firstTap&&!e.target.classList.contains('draggable-letter')){firstTap.style.background="";firstTap=null;}
+      }
+    }
+  }
+  function swapElems(a,b){
+    var ap = a.parentNode, asib = a.nextSibling;
+    if (asib === b) { ap.insertBefore(b,a); }
+    else { ap.insertBefore(a,b); }
+  }
+  function checkLettersAnswer() {
+    const letters = Array.from(document.querySelectorAll('.draggable-letter')).map(el=>el.innerText).join('');
+    if (letters === task.answer) showPositiveFeedback();
+  }
+  function checkTextInput() {
+    const input = document.getElementById('text-input').value.trim();
+    if(input.toLowerCase() === task.answer.toLowerCase()) showPositiveFeedback();
+  }
+  function showPositiveFeedback() {
+    const area = document.getElementById('feedback');
+    area.innerHTML = (task.feedback.endsWith('.gif')||task.feedback.endsWith('.png')) ?
+      '<img src="'+task.feedback+'" alt="success" style="width:85px;">' :
+      '<span style="font-size:22px;color:#208a4e;font-weight:bold;">'+task.feedback+'</span><br>';
+    area.innerHTML += '<button onclick="finishTask()" style="margin:16px auto 0;">На главную</button>';
+  }
+  window.closeTask = function(){
+    document.getElementById('task-modal').style.display = 'none';
+    renderMainPage();
+  }
+  window.finishTask = function(){
+    doneTasks[task.id]=true;
+    closeTask();
+    updateProgressRange();
+  }
+  window.checkLettersAnswer=checkLettersAnswer;
+  window.checkTextInput=checkTextInput;
+}
+function shuffleLetters(word) {
+  let arr = word.split('');
+  if(arr.length<=3) return arr;
+  let shuffled;
+  do { shuffled = arr.slice().sort(()=>Math.random()-0.5); }
+  while(shuffled.join('')===word);
+  return shuffled;
+}
+function updateProgressRange() {
+  const range = document.getElementById("progress-range"),
+        feedback = document.getElementById("progress-feedback"),
+        k = dictationTasks.filter(t=>t.language===currentLang).length,
+        d = dictationTasks.filter(t=>t.language===currentLang && doneTasks[t.id]).length;
+  range.max=k;range.value=d;
+  let arr = feedbackPhrases, idx = Math.min(d, arr.length-1);
+  feedback.textContent = arr[idx];
+}
+document.getElementById("progress-range").addEventListener('input',updateProgressRange);
+renderLevelSelect(); renderMainPage(); updateProgressRange();
+</script>
+</body>
+</html>
